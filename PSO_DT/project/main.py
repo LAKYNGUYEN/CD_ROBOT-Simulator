@@ -92,6 +92,13 @@ class Robot(object):
         self.last_position = (self.x, self.y)
         self.total_distance = 0 
         self.frames_count = 0 
+        
+        # Lưu trữ lịch sử vận tốc
+        self.velocity_history = []
+        self.counter = 0
+        
+        self.previous_theta = self.theta  # Lưu góc trước đó để tính phạt xoay vòng
+        self.IT = 0  # Số bước di chuyển
     def move(self):
         self.v1 = min(self.v1, self.speed[1])
         self.v2 = min(self.v2, self.speed[1])
@@ -143,17 +150,12 @@ class Robot(object):
                 distance += step
                 if x < 0 or x >= maze.width or y < 0 or y >= maze.height:
                     break
-                if x < 0 or x >= 800 or y < 0 or y >= 900:
+                if x < 0 or x >= 900 or y < 0 or y >= 800:
                     break
                 r, g, b, a = map.get_at((x, y))
-                if (r, g, b) == (0, 0, 0):
-                    break
-                if (r + g + b) < 10:
-                    break
                 if r < 20 and g < 20 and b < 20:
                     break
-                if r < 10 and g < 10 and b < 10:
-                    break
+                
             edges.append((x, y))
             distances.append(distance)
         self.sensor = distances
@@ -161,11 +163,11 @@ class Robot(object):
     def draw(self, screen):
         screen.blit(self.rotated, self.rect)
     def draw_circle(self, screen):
-        pygame.draw.circle(screen, self.green, self.rect.center, 35, 2)
+        pygame.draw.circle(screen, self.green, self.rect.center, 25, 2)
     def check(self, screen):
         for angle in np.linspace(0, 2 * np.pi, 36):
-            x = int(self.x + 35 * np.cos(angle))
-            y = int(self.y + 35 * np.sin(angle))
+            x = int(self.x + 25 * np.cos(angle))
+            y = int(self.y + 25 * np.sin(angle))
             if 0 <= x < screen.get_width() and 0 <= y < screen.get_height():
                 r, g, b, a = screen.get_at((x, y))
                 if r < 20 and g < 20 and b < 20: 
@@ -174,24 +176,48 @@ class Robot(object):
         self.crash = False
         return False
 
+def fitness_function(robot, goal_x=450, goal_y=800):
+    # Khoảng cách đến đích
+    distance_to_goal = np.sqrt((goal_x - robot.x) ** 2 + (goal_y - robot.y) ** 2)
+    
+    # Phạt nếu robot va vào tường
+    collision_penalty = 4000 if robot.crash else 0  
+    
+    # Phạt nếu robot xoay vòng liên tục
+    rotation_penalty = abs(robot.theta - robot.previous_theta)*0.005   # Phạt dựa trên mức thay đổi góc
+    
+    # Phạt dựa trên số bước di chuyển
+    step_penalty = robot.IT *0.005 # Càng nhiều bước, điểm phạt càng cao
+    # phạt đi sai hướng
+    # if robot.x < 300 or robot.x > 900 or robot.y < 800 or robot.y > 800:
+    #     step_penalty += 1000
+    # Thưởng nếu robot tiến gần đến mục tiêu
+    progress_reward = -1050 if distance_to_goal < np.sqrt((goal_x - robot.last_position[0])**2 + (goal_y - robot.last_position[1])**2) else 0
+    
+    # Tổng chi phí đánh giá
+    fitness_score = distance_to_goal + collision_penalty + step_penalty + rotation_penalty + progress_reward
+    
+    return fitness_score
+
+
 
 if __name__ == "__main__":
     pygame.init()
     maze = Maze("maps/map-0.png")
     noron = Noron()
     running = True
-    numbers = 10
+    numbers = 50
     robots = []
-    SPEED = 2.5  # Speed of the robot
+    # SPEED =   # Speed of the robot
     
     # PSO parameters
     pop_size = numbers
-    npar = 55
+    npar = 65 # Number of parameters in the neural network
     min_max = [-5, 5]
     w_pso = 0.9
-    c1_pso = 0.5
-    c2_pso = 0.5
-    max_iteration = 30
+    c1_pso = 0.65
+    c2_pso = 0.45
+    max_iteration = 100
     current_iteration = 0
     
     
@@ -204,118 +230,100 @@ if __name__ == "__main__":
     fitness_mean = np.zeros(max_iteration)
     P_pso = np.random.uniform(min_max[0], min_max[1], (pop_size, npar))
     V_pso = np.zeros((pop_size, npar))
-    
+    JJ = np.zeros(pop_size)
     # Create initial robots
     for _ in range(numbers):
-        robots.append(Robot(400, 90, math.pi / 2, "E:/HK8/ChuyenDe-Robot/RBF1.png"))
+        robots.append(Robot(400, 90, 4*math.pi/2, "E:/HK8/ChuyenDe-Robot/RBF1.png"))
     
     clock = pygame.time.Clock()
     
     while running and current_iteration < max_iteration:
         
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
-                running = False
         num_robot_available = numbers
-        
-        # maze.draw()
-        
-        # Update each robot
         # check nếu 10S thì tạo lại quần thể
         last_time = pygame.time.get_ticks()
         runnTime = 0
-        while num_robot_available > 0 and runnTime < 10 :
+        for robot in robots:
+            robots = [Robot(400, 70, math.pi / 2, "E:/HK8/ChuyenDe-Robot/RBF1.png") for _ in range(numbers)]
+            robot.crash = False
+            robot.v1 = 0
+            robot.v2 = 0
+            robot.costfunction = 0
+            robot.IT = 0
+            # robot.check(maze.map)
+            robot.sensors(maze.map, maze)
+           
+            
+        while num_robot_available >0  and runnTime < 15:
             for idx, robot in enumerate(robots):
-                 # Skip crashed robots
+                    # Skip crashed robots
+                if robot.crash == False:        
+                    ex, ey = 450 - robot.x, 800 - robot.y
+                    etheta = (math.pi / 2) - robot.theta
                     
-                ex, ey = 450 - robot.x, 800 - robot.y
-                etheta = (math.pi / 2) - robot.theta
-                robot.costfunction += ex**2 + ey**2 + etheta**2
-                robot.IT += 1
-                
-                X_nn = np.array([
-                    robot.sensor[0], robot.sensor[1], robot.sensor[2],
-                    robot.x, robot.y, robot.theta, 450, 800, (math.pi / 2)
-                ])
-                
-                W = P_pso[idx, :45].reshape(9, 5)
-                V = P_pso[idx, 45:].reshape(5, 2)
-                v1, v2 = noron.NN(X_nn, W, V).flatten()
-                robot.v1, robot.v2 = v1 * SPEED, v2 * SPEED
-                robot.move()
-                # 
-                
-                # dx = robot.x - robot.last_position[0]
-                # dy = robot.y - robot.last_position[1]
-                # distance_moved = (dx**2 + dy**2) ** 0.5 
-                # robot.total_distance += distance_moved 
-                # robot.frames_count += 1
-                
-                
-                # if robot.frames_count >= 600:
-                #     min_distance_threshold = 5 
-                #     if robot.total_distance < min_distance_threshold:
-                #         robot.crash = True  
-                #     robot.total_distance = 0
-                #     robot.frames_count = 0
-                # robot.last_position = (robot.x, robot.y)
-                
-                if robot.crash:
-                    num_robot_available -= 1
-                    continue 
-                # 
-                if robot.check(maze.map):
-                    robot.costfunction /= robot.IT
-                
-                robot.sensors(maze.map, maze)
-                robot.draw(maze.map)
-                robot.draw_circle(maze.map)
-                maze.frame((robot.x, robot.y), robot.theta)
-                maze.sensor_data((robot.x, robot.y), robot.edges)
-                
+                    # theta_error = abs(etheta)
+                # Cost function
+                    # robot.costfunction += ex**2 + ey**2 + etheta**2 + 0.1 *theta_error
+                    # compute_reward(robot)
+                    robot.IT += 1
+                    
+                    X_nn = np.array([
+                        robot.sensor[0], robot.sensor[1], robot.sensor[2], robot.sensor[3], robot.sensor[4],     
+                        robot.x, robot.y, robot.theta, 450, 800, (math.pi / 2)
+                    ])
+                    
+                    W = P_pso[idx, :55].reshape(11, 5)
+                    V = P_pso[idx, 55:].reshape(5, 2)
+                    v1, v2 = noron.NN(X_nn, W, V).flatten()
+                    
+                    # Cập nhật vận tốc và di chuyển robot
+                    robot.v1, robot.v2 = v1 , v2 
+                    robot.move()
+
+                    if robot.crash:
+                        # num_robot_available -= 1
+                        continue 
+                    # 
+                    if robot.check(maze.map):
+                        num_robot_available -= 1
+                        # robot.costfunction /= robot.IT
+                    
+                    robot.sensors(maze.map, maze)
+                    robot.draw(maze.map)
+                    robot.draw_circle(maze.map)
+                    maze.frame((robot.x, robot.y), robot.theta)
+                    maze.sensor_data((robot.x, robot.y), robot.edges)
             # nếu đủ 10s thì break
-            runnTime = (pygame.time.get_ticks() - last_time) / 1000
             pygame.display.update()
             maze.draw()
+            runnTime = (pygame.time.get_ticks() - last_time) / 1000
+            # print(runnTime)
             clock.tick(60)
             
-        if all(robot.crash for robot in robots):
-                    print(f'Iteration {current_iteration} ended. Restarting with new robots.')
-                    current_iteration += 1
-                    if current_iteration >= max_iteration:
-                        break
-                    
-                    # # Reset lại PSO
-                    # P_pso = np.random.uniform(min_max[0], min_max[1], (pop_size, npar))
-                    # V_pso = np.zeros((pop_size, npar))
-                    # Pbest_fitness.fill(np.inf)
-                    # Gbest_fitness = np.inf
-                    # Pbest_position.fill(0)
-                    # Gbest_position.fill(0)
-                    
-                    # Tạo lại danh sách robots
-                    robots = [Robot(400, 70, math.pi / 2, "E:/HK8/ChuyenDe-Robot/RBF1.png") for _ in range(numbers)]
-                    continue
-        # Kiểm tra nếu tất cả robot bị crash thì restart iteration
-        
-        
+    
         # Update PSO
         for idx, robot in enumerate(robots):
-            if robot.crash:
-                continue
-            J = robot.costfunction
+            # J = robot.costfunction
+            J = fitness_function(robot)
+
+            JJ[idx] = J
             if J < Pbest_fitness[idx]:
                 Pbest_fitness[idx] = J
                 Pbest_position[idx] = P_pso[idx]
             if J < Gbest_fitness:
                 Gbest_fitness = J
                 Gbest_position = P_pso[idx]
-        
         fitness_values[current_iteration] = Gbest_fitness
-        fitness_mean[current_iteration] = np.mean([robot.costfunction for robot in robots if not robot.crash])
+        fitness_mean[current_iteration] = np.mean(JJ)
         
+        w_pso = 0.9 - (current_iteration / max_iteration) * (0.9 - 0.4)
+        # c1_pso = 2.5 - (current_iteration / max_iteration) * 1.5
+        # c2_pso = 0.5 + (current_iteration / max_iteration) * 1.5
+        
+        # Update velocity and position
         V_pso = (w_pso * V_pso + c1_pso * np.random.rand() * (Pbest_position - P_pso) 
                  + c2_pso * np.random.rand() * (Gbest_position - P_pso))
         P_pso += V_pso
         
         print(f'Iteration {current_iteration}: {Gbest_fitness}')
+        current_iteration += 1
