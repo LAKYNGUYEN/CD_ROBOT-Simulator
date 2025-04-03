@@ -641,12 +641,12 @@ class Robot(object):
 def fitness_function(robot, goal_x=450, goal_y=800):
     distance_to_goal = np.sqrt((goal_x - robot.x) ** 2 + (goal_y - robot.y) ** 2)
     
-    collision_penalty = 100 if robot.crash else 0
+    collision_penalty = 500 if robot.crash else 0
     
-    rotation_penalty = abs(robot.theta - robot.previous_theta) * 0.05
+    rotation_penalty = abs(robot.theta - robot.previous_theta) * 2
     
     step_penalty = robot.IT * 0.03 if robot.crash else 0
-    progress_reward = -50 if distance_to_goal < np.sqrt((goal_x - robot.last_position[0])**2 + (goal_y - robot.last_position[1])**2) else 0
+    progress_reward = -150 if distance_to_goal < np.sqrt((goal_x - robot.last_position[0])**2 + (goal_y - robot.last_position[1])**2) else 0
 
     start_x, start_y = robot.start_position
     current_distance = np.sqrt((robot.x - start_x) ** 2 + (robot.y - start_y) ** 2)
@@ -763,7 +763,7 @@ if __name__ == "__main__":
             robot.history = []  # reset lịch sử
 
         # Vòng lặp di chuyển trong 10 giây
-        while num_robot_available > 0 and runnTime < 60:
+        while num_robot_available > 0 and runnTime < 120:
             for idx, robot in enumerate(robots):
                 if not robot.crash:
                     # Cập nhật số bước
@@ -775,7 +775,7 @@ if __name__ == "__main__":
                     V = P_pso[idx, 55:].reshape(5, 2)
                     v1, v2 = noron.NN(X_nn, W, V).flatten()
                     
-                    robot.v1, robot.v2 = v1*0.2, v2 *0.2
+                    robot.v1, robot.v2 = v1*3, v2 *3
                     robot.move()
                     robot.history.append((robot.x, robot.y))
                     
